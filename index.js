@@ -111,7 +111,7 @@ bot.on("message", async (ctx) => {
 
         const allNotBannedSpammers =
             (await new Promise((resolve, reject) => {
-                db.get(
+                db.all(
                     "SELECT * FROM spammers WHERE isBanned = false",
                     (err, rows) => {
                         if (err) reject(err);
@@ -122,7 +122,7 @@ bot.on("message", async (ctx) => {
 
         const allBannedSpammers =
             (await new Promise((resolve, reject) => {
-                db.get(
+                db.all(
                     "SELECT * FROM spammers WHERE isBanned = true",
                     (err, rows) => {
                         if (err) reject(err);
@@ -167,7 +167,7 @@ bot.on("message", async (ctx) => {
 
         await new Promise((resolve, reject) => {
             db.run(
-                "UDDATE statistic SET howMuchChecks = ? WHERE id = 1",
+                "UPDATE statistic SET howMuchChecks = ? WHERE id = 1",
                 [stats.howMuchChecks + 1],
                 (err) => {
                     if (err) reject(err);
@@ -177,11 +177,11 @@ bot.on("message", async (ctx) => {
         });
 
         isSpam = (await checkMessageByAI(ctx.message.text)) || false;
-    }
+
     if (isSpam) {
         await new Promise((resolve, reject) => {
             db.run(
-                "UDDATE statistic SET howMuchSpam = ? WHERE id = 1",
+                "UPDATE statistic SET howMuchSpam = ? WHERE id = 1",
                 [stats.howMuchSpam + 1],
                 (err) => {
                     if (err) reject(err);
@@ -219,7 +219,7 @@ bot.on("message", async (ctx) => {
     } else {
         await new Promise((resolve, reject) => {
             db.run(
-                "UDDATE statistic SET howMuchMiss = ? WHERE id = 1",
+                "UPDATE statistic SET howMuchMiss = ? WHERE id = 1",
                 [stats.howMuchMiss + 1],
                 (err) => {
                     if (err) reject(err);
@@ -231,7 +231,7 @@ bot.on("message", async (ctx) => {
 
     const allSpammers =
         (await new Promise((resolve, reject) => {
-            db.get(
+            db.all(
                 "SELECT * FROM spammers WHERE isBanned = false",
                 (err, rows) => {
                     if (err) reject(err);
@@ -249,7 +249,7 @@ bot.on("message", async (ctx) => {
         if (chatMember.status === "kicked") {
             await new Promise((resolve, reject) => {
                 db.run(
-                    "UDDATE spammers SET isBanned = true WHERE id = ?",
+                    "UPDATE spammers SET isBanned = true WHERE id = ?",
                     [spammer.id],
                     (err) => {
                         if (err) reject(err);
@@ -261,6 +261,7 @@ bot.on("message", async (ctx) => {
     });
 
     console.log(`${isSpam}: ${ctx.from.id}:\n${ctx.message.text}`);
+}
 });
 
 bot.catch((err) => {
