@@ -1,6 +1,6 @@
 // env vars
 require("dotenv").config();
-const { BOT_TOKEN, MISTRAL_API_KEY } = process.env;
+const { BOT_TOKEN, MISTRAL_API_KEY, CHAT_ID } = process.env;
 
 // tg bot modules
 const { Bot, MemorySessionStorage, GrammyError, HttpError } = require("grammy");
@@ -16,17 +16,8 @@ const sqlite3 = require("sqlite3");
 const client = new Mistral({ apiKey: MISTRAL_API_KEY });
 const adapter = new MemorySessionStorage();
 
-const db = new sqlite3.Database(
-    "./database/stats.db",
-    sqlite3.OPEN_READWRITE,
-    (err) => {
-        if (err) {
-            console.error(err.message);
-        } else {
-            console.log("Connected to the SQLite database.");
-        }
-    }
-);
+const StatisticsService = require("./service/statistics.service");
+StatisticsService.initDB();
 
 const bot = new Bot(BOT_TOKEN);
 bot.use(chatMembers(adapter));
@@ -58,9 +49,11 @@ const instruction = `
 (this is NOT a legal advice.)"
 
 Внимательно прочитай сообщение и ответь, используя следующий формат:
+Так же выдавай уверенность в спаме в процентах 0-100%
 
 {
   "is_spam": true/false,
+  "confidency": 0-100
 }
 
 Нужное сообщение для проверки:
@@ -88,79 +81,52 @@ async function checkMessageByAI(message) {
             response = response.slice(7, -3).trim();
         }
         response = JSON.parse(response);
-        console.log(response);
-        return response.is_spam;
+        return response;
     } catch (error) {
         console.error(error);
     }
 }
 
-async function updateStatistics() {
-    const stats = await new Promise((resolve, reject) => {
-        db.get("SELECT * FROM statistic WHERE id = 1", (err, row) => {
-            if (err) reject(err);
-            else resolve(row);
-        });
-    });
-
-    if (!stats) {
-        await new Promise((resolve, reject) => {
-            db.run(
-                "INSERT INTO statistic (howMuchChecks, howMuchSpam, howMuchMiss) VALUES (?, ?, ?)",
-                [0, 0, 0],
-                (err) => {
-                    if (err) reject(err);
-                    else resolve();
-                }
-            );
-        });
-    }
-}
-updateStatistics();
+console.log(StatisticsService.getStats);
 
 bot.on("message", async (ctx) => {
+    // console.log(ctx.message.chat)
+    // const { id } = ctx.message.from;
+    // const user = await ctx.getChat();
+
+
     if (
         typeof ctx.message.text == "string" &&
         ctx.message.text === "Секретная фраза для получения статистики у бота"
     ) {
-        const stats = await new Promise((resolve, reject) => {
-            db.get("SELECT * FROM statistic WHERE id = 1", (err, row) => {
-                if (err) reject(err);
-                else resolve(row);
-            });
-        });
+        const { stats, allNotBannedSpammers, allBannedSpammers } =
+            await StatisticsService.getStats();
+        const totalSpammers =
+            allBannedSpammers.length + allNotBannedSpammers.length;
+        let message = "```\n";
+        message += "| Статистика                     | Значение \n";
+        message += "|--------------------------------|----------\n";
+        message += `| Всего проверок                 | ${stats.howMuchChecks
+            .toString()
+            .padStart(4)} \n`;
+        message += `| Всего спама                    | ${stats.howMuchSpam
+            .toString()
+            .padStart(4)} \n`;
+        message += `| Всего НЕ спама                 | ${stats.howMuchMiss
+            .toString()
+            .padStart(4)} \n`;
+        message += `| Всего спамеров                 | ${totalSpammers
+            .toString()
+            .padStart(4)} \n`;
+        message += `| Всего забаненных спамеров      | ${allBannedSpammers.length
+            .toString()
+            .padStart(4)} \n`;
+        message += `| Всего НЕзабаненных спамеров    | ${allNotBannedSpammers.length
+            .toString()
+            .padStart(4)} \n`;
+        message += "```";
 
-        const allNotBannedSpammers =
-            (await new Promise((resolve, reject) => {
-                db.all(
-                    "SELECT * FROM spammers WHERE isBanned = false",
-                    (err, rows) => {
-                        if (err) reject(err);
-                        else resolve(rows);
-                    }
-                );
-            })) || [];
-
-        const allBannedSpammers =
-            (await new Promise((resolve, reject) => {
-                db.all(
-                    "SELECT * FROM spammers WHERE isBanned = true",
-                    (err, rows) => {
-                        if (err) reject(err);
-                        else resolve(rows);
-                    }
-                );
-            })) || [];
-
-        const message = `Всего проверок: ${stats.howMuchChecks}\nВсего спама: ${
-            stats.howMuchSpam
-        }\nВсего НЕ спама: ${stats.howMuchMiss}\n\nВсего спамеров: ${
-            allBannedSpammers.length + allNotBannedSpammers.length
-        }\nВсего забанных спамеров: ${
-            allBannedSpammers.length
-        }\nВсего НЕзабаненных спамеров ${allNotBannedSpammers.length}`;
-
-        await ctx.reply(message);
+        await ctx.reply(message, { parse_mode: "Markdown" });
         return;
     }
 
@@ -177,112 +143,26 @@ bot.on("message", async (ctx) => {
     //     until_date: 0
     //   }
 
-    let isSpam = false;
     if (typeof ctx.message.text == "string" && ctx.message.text.length > 50) {
-        const stats = await new Promise((resolve, reject) => {
-            db.get("SELECT * FROM statistic WHERE id = 1", (err, row) => {
-                if (err) reject(err);
-                else resolve(row);
+        await StatisticsService.incChecks();
+
+        const aiResponse = (await checkMessageByAI(ctx.message.text)) || false;
+        console.log(aiResponse);
+
+        if (aiResponse?.confidency > 75) {
+            await StatisticsService.markUserAsSpammer(ctx.from.id);
+
+            let message = `spamrate ${aiResponse.confidency}%`
+
+            await ctx.reply(message, {
+                reply_parameters: { message_id: ctx.msg.message_id },
             });
-        });
-
-        await new Promise((resolve, reject) => {
-            db.run(
-                "UPDATE statistic SET howMuchChecks = ? WHERE id = 1",
-                [stats.howMuchChecks + 1],
-                (err) => {
-                    if (err) reject(err);
-                    else resolve();
-                }
-            );
-        });
-
-        isSpam = (await checkMessageByAI(ctx.message.text)) || false;
-
-    if (isSpam) {
-        await new Promise((resolve, reject) => {
-            db.run(
-                "UPDATE statistic SET howMuchSpam = ? WHERE id = 1",
-                [stats.howMuchSpam + 1],
-                (err) => {
-                    if (err) reject(err);
-                    else resolve();
-                }
-            );
-        });
-
-        const memberData = await new Promise((resolve, reject) => {
-            db.get(
-                "SELECT * FROM spammers WHERE id = ?",
-                [ctx.from.id],
-                (err, row) => {
-                    if (err) reject(err);
-                    else resolve(row);
-                }
-            );
-        });
-        if (!memberData) {
-            await new Promise((resolve, reject) => {
-                db.run(
-                    "INSERT INTO spammers (id, isBanned) VALUES (?, ?)",
-                    [ctx.from.id, false],
-                    (err) => {
-                        if (err) reject(err);
-                        else resolve();
-                    }
-                );
-            });
+        } else {
+            await StatisticsService.incMisses();
         }
 
-        await ctx.reply("spam", {
-            reply_parameters: { message_id: ctx.msg.message_id },
-        });
-    } else {
-        await new Promise((resolve, reject) => {
-            db.run(
-                "UPDATE statistic SET howMuchMiss = ? WHERE id = 1",
-                [stats.howMuchMiss + 1],
-                (err) => {
-                    if (err) reject(err);
-                    else resolve();
-                }
-            );
-        });
+        console.log(`${aiResponse}: ${ctx.from.id}:\n${ctx.message.text}`);
     }
-
-    const allSpammers =
-        (await new Promise((resolve, reject) => {
-            db.all(
-                "SELECT * FROM spammers WHERE isBanned = false",
-                (err, rows) => {
-                    if (err) reject(err);
-                    else resolve(rows);
-                }
-            );
-        })) || [];
-
-    allSpammers.forEach(async (spammer) => {
-        const chatMember = await ctx.chatMembers.getChatMember(
-            ctx.chat.id,
-            spammer.id
-        );
-
-        if (chatMember.status === "kicked") {
-            await new Promise((resolve, reject) => {
-                db.run(
-                    "UPDATE spammers SET isBanned = true WHERE id = ?",
-                    [spammer.id],
-                    (err) => {
-                        if (err) reject(err);
-                        else resolve();
-                    }
-                );
-            });
-        }
-    });
-
-    console.log(`${isSpam}: ${ctx.from.id}:\n${ctx.message.text}`);
-}
 });
 
 bot.catch((err) => {
