@@ -140,7 +140,7 @@ class StatisticsService {
         }
     }
 
-    async updateSpammersStatus() {
+    async updateSpammersStatus(ctx) {
         const allSpammers =
             (await new Promise((resolve, reject) => {
                 db.all(

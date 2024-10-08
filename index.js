@@ -3,14 +3,25 @@ require("dotenv").config();
 const { BOT_TOKEN, MISTRAL_API_KEY, CHAT_ID } = process.env;
 
 // tg bot modules
-const { Bot, MemorySessionStorage, GrammyError, HttpError } = require("grammy");
+const {
+    Bot,
+    MemorySessionStorage,
+    GrammyError,
+    HttpError,
+    InlineKeyboard,
+    session,
+} = require("grammy");
 const { chatMembers } = require("@grammyjs/chat-members");
+const {
+    conversations,
+    createConversation,
+} = require("@grammyjs/conversations");
+const { hydrate } = require("@grammyjs/hydrate");
 
 // ai module
 const { Mistral } = require("@mistralai/mistralai");
 
 // db module
-const sqlite3 = require("sqlite3");
 
 // store/api settings
 const client = new Mistral({ apiKey: MISTRAL_API_KEY });
@@ -20,43 +31,94 @@ const StatisticsService = require("./service/statistics.service");
 StatisticsService.initDB();
 
 const bot = new Bot(BOT_TOKEN);
+bot.use(hydrate());
+
+bot.use(
+    session({
+        initial() {
+            // return empty object for now
+            return {};
+        },
+    })
+);
+
 bot.use(chatMembers(adapter));
+bot.use(conversations());
+
+var bufferMsg = null;
+
+async function greeting(conversation, ctx) {
+    console.log("trigger");
+    const blowUpTimer = setTimeout(async () => {
+        if (bufferMsg !== null) {
+            try {
+                const message = `этот чел отправил спам и не нажал кнопку ТРИВОГА ТРИВОГА`
+
+                await bufferMsg.editText(message, {
+                    reply_markup: null,
+                });
+                await ctx.api.deleteMessage(
+                    ctx.chat.id,
+                    ctx.update.message.message_id
+                );
+                return;
+            } catch (error) {
+                return;
+                // Ignore errors, since the message may have already been deleted
+            }
+            bufferMsg = null;
+        }
+        return
+
+    }, 10000);
+
+    const response = await conversation.waitFrom(ctx.from.id);
+
+    const btnContext = response.update.callback_query;
+    if (btnContext) {
+        try {
+            await response.answerCallbackQuery();
+            await ctx.api.deleteMessage(
+                ctx.chat.id,
+                btnContext.message.message_id
+            );
+            return;
+            clearTimeout(blowUpTimer);
+            bufferMsg = null;
+        } catch (error) {
+            return;
+            // Ignore errors, since the message may have already been deleted
+        }
+        return;
+    }
+
+    if (btnContext.from.id === ctx.from.id && bufferMsg !== null) {
+    }
+
+    return;
+}
+
+bot.use(createConversation(greeting));
 
 const instruction = `
-Ты - классификатор спама в чате Winderton. Твоя задача - определить, является ли сообщение спамом или нет. Учти, что сообщения могут содержать шутки, мемы или развлекательный контент, который не является спамом. Основной спам здесь - это предложения о заработке или набор людей в различные проекты. Важно различать рофлы и юмористические сообщения, которые могут выглядеть как спам, но на самом деле таковыми не являются.
+Ты - классификатор спам-сообщений в телеграм-чате для программистов. Твоя задача - определить, является ли данное сообщение спамом или нет. 
 
-Сообщение считается спамом, если оно:
-- содержит конкретные предложения о заработке, наборе людей или рекрутировании;
-- содержит явные ссылки на сторонние сервисы, рекламу или мошенничество (например, @GOLD_SIGNALS);
-- выражает серьезные намерения по набору людей или заработку, без элементов явного юмора или сарказма.
+Учитывай следующее:
+- Чат программистов часто наполнен шутками, мемами и развлекательным контентом, который не должен классифицироваться как спам.
+- Основной вид спама в этом чате - это предложения о работе, заработке или наборе людей в различные проекты, особенно если они не содержат явных признаков юмора или иронии.
+- Сообщения, выражающие серьезные намерения по трудоустройству или заработку, без элементов юмора или сарказма, следует рассматривать как спам.
+- Сообщения, содержащие рекламу, мошенничество или явные призывы к участию в сомнительных схемах заработка, также следует классифицировать как спам.
+- Важно отличать шутки, мемы и преувеличения, связанные с работой или заработком, от реальных спам-предложений.
 
-Сообщение не считается спамом, если оно:
-- является шуткой, мемом, или имеет юмористический, саркастический, или абсурдный характер, даже если оно упоминает заработок или работу;
-- обсуждает вопросы, связанные с программированием, обучением или обсуждением профессиональных тем;
-- включает фразы с юмором или преувеличениями, которые не подразумевают реальных предложений.
-
-Примеры рофлов, которые НЕ являются спамом:
-1. "Ну хуе мое вы ничего не знаете, но мы вас может быть научим и через пару месяцев будете зарабатывать 20к, а через год возможно и 40."
-2. "Но это уже куда интереснее чем когда к нам приезжали челы с военки и рассказывали про бесплатную работу за опыт."
-3. ">learn english
->get a visa
->go to california
->job interview
->say you’re in the usa and are allowed to work
->remotely
->earn bucks from the other side of the world
->profit
-(this is NOT a legal advice.)"
-
-Внимательно прочитай сообщение и ответь, используя следующий формат:
-Так же выдавай уверенность в спаме в процентах 0-100%
+Используй следующий формат для ответа:
 
 {
   "is_spam": true/false,
-  "confidency": 0-100
+  "confidence": 0-100,
+  "reason": "причина принятого решения"
 }
 
-Нужное сообщение для проверки:
+Постарайся максимально точно определять спам, минимизируя ложноположительные срабатывания.
 `;
 
 async function checkMessageByAI(message) {
@@ -87,14 +149,7 @@ async function checkMessageByAI(message) {
     }
 }
 
-console.log(StatisticsService.getStats);
-
 bot.on("message", async (ctx) => {
-    // console.log(ctx.message.chat)
-    // const { id } = ctx.message.from;
-    // const user = await ctx.getChat();
-
-
     if (
         typeof ctx.message.text == "string" &&
         ctx.message.text === "Секретная фраза для получения статистики у бота"
@@ -130,38 +185,40 @@ bot.on("message", async (ctx) => {
         return;
     }
 
-    // 6698478458 - banned id
-    // {
-    //     user: {
-    //       id: 6698478458,
-    //       is_bot: false,
-    //       first_name: 'Феликс Шиховцов',
-    //       username: 'Feliks_PRmen',
-    //       is_premium: true
-    //     },
-    //     status: 'kicked',
-    //     until_date: 0
-    //   }
-
-    if (typeof ctx.message.text == "string" && ctx.message.text.length > 50) {
+    if (
+        typeof ctx.message.text == "string" &&
+        ctx.message.text.length > 50
+        // && ctx.chat.id == CHAT_ID
+    ) {
         await StatisticsService.incChecks();
 
         const aiResponse = (await checkMessageByAI(ctx.message.text)) || false;
         console.log(aiResponse);
 
-        if (aiResponse?.confidency > 75) {
+        if (aiResponse?.confidence >= 75 && aiResponse?.is_spam) {
             await StatisticsService.markUserAsSpammer(ctx.from.id);
+            await StatisticsService.incSpam();
 
-            let message = `spamrate ${aiResponse.confidency}%`
+            const keyboard = new InlineKeyboard().text(
+                "Я не ботяра",
+                "pass_check"
+            );
 
-            await ctx.reply(message, {
+            let message = `spamrate ${aiResponse.confidence}%\nreason:\n\'\'\'${aiResponse.reason}\'\'\'`;
+
+            await ctx.conversation.enter("greeting");
+
+            bufferMsg = await ctx.reply(message, {
                 reply_parameters: { message_id: ctx.msg.message_id },
+                reply_markup: keyboard,
             });
         } else {
             await StatisticsService.incMisses();
         }
 
-        console.log(`${aiResponse}: ${ctx.from.id}:\n${ctx.message.text}`);
+        console.log(
+            `${aiResponse?.confidency}: ${ctx.from.id}:\n${ctx.message.text}`
+        );
     }
 });
 
@@ -179,6 +236,10 @@ bot.catch((err) => {
     }
 });
 
+bot.on("callback_query", async (ctx) => {
+    await ctx.answerCallbackQuery();
+});
+
 bot.start({
-    allowed_updates: ["chat_member", "message"],
+    allowed_updates: ["chat_member", "message", "callback_query"],
 });
