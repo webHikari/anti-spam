@@ -1,6 +1,6 @@
 // env vars
 require("dotenv").config();
-const { BOT_TOKEN, MISTRAL_API_KEY, CHAT_ID } = process.env;
+const { BOT_TOKEN, MISTRAL_API_KEY, CHAT_ID, LOGS_CHAT_ID } = process.env;
 
 // tg bot modules
 const {
@@ -47,58 +47,58 @@ bot.use(conversations());
 
 var bufferMsg = null;
 
-async function greeting(conversation, ctx) {
+async function spamTrigger(conversation, ctx) {
     console.log("trigger");
-    const blowUpTimer = setTimeout(async () => {
-        if (bufferMsg !== null) {
-            try {
-                const message = `этот чел отправил спам и не нажал кнопку ТРИВОГА ТРИВОГА`
+    // const blowUpTimer = setTimeout(async () => {
+    //     if (bufferMsg !== null) {
+    //         try {
+    //             const message = `этот чел отправил спам и не нажал кнопку ТРИВОГА ТРИВОГА`
 
-                await bufferMsg.editText(message, {
-                    reply_markup: null,
-                });
-                await ctx.api.deleteMessage(
-                    ctx.chat.id,
-                    ctx.update.message.message_id
-                );
-                return;
-            } catch (error) {
-                return;
-                // Ignore errors, since the message may have already been deleted
-            }
-            bufferMsg = null;
-        }
-        return
+    //             await bufferMsg.editText(message, {
+    //                 reply_markup: null,
+    //             });
+    //             await ctx.api.deleteMessage(
+    //                 ctx.chat.id,
+    //                 ctx.update.message.message_id
+    //             );
+    //             return;
+    //         } catch (error) {
+    //             return;
+    //             // Ignore errors, since the message may have already been deleted
+    //         }
+    //         bufferMsg = null;
+    //     }
+    //     return
 
-    }, 10000);
+    // }, 10000);
 
-    const response = await conversation.waitFrom(ctx.from.id);
+    // const response = await conversation.waitFrom(ctx.from.id);
 
-    const btnContext = response.update.callback_query;
-    if (btnContext) {
-        try {
-            await response.answerCallbackQuery();
-            await ctx.api.deleteMessage(
-                ctx.chat.id,
-                btnContext.message.message_id
-            );
-            return;
-            clearTimeout(blowUpTimer);
-            bufferMsg = null;
-        } catch (error) {
-            return;
-            // Ignore errors, since the message may have already been deleted
-        }
-        return;
-    }
+    // const btnContext = response.update.callback_query;
+    // if (btnContext) {
+    //     try {
+    //         await response.answerCallbackQuery();
+    //         await ctx.api.deleteMessage(
+    //             ctx.chat.id,
+    //             btnContext.message.message_id
+    //         );
+    //         return;
+    //         clearTimeout(blowUpTimer);
+    //         bufferMsg = null;
+    //     } catch (error) {
+    //         return;
+    //         // Ignore errors, since the message may have already been deleted
+    //     }
+    //     return;
+    // }
 
-    if (btnContext.from.id === ctx.from.id && bufferMsg !== null) {
-    }
+    // if (btnContext.from.id === ctx.from.id && bufferMsg !== null) {
+    // }
 
     return;
 }
 
-bot.use(createConversation(greeting));
+bot.use(createConversation(spamTrigger));
 
 const instruction = `
 Ты - классификатор спам-сообщений в телеграм-чате для программистов. Твоя задача - определить, является ли данное сообщение спамом или нет. 
@@ -199,19 +199,22 @@ bot.on("message", async (ctx) => {
             await StatisticsService.markUserAsSpammer(ctx.from.id);
             await StatisticsService.incSpam();
 
-            const keyboard = new InlineKeyboard().text(
-                "Я не ботяра",
-                "pass_check"
-            );
+            // const keyboard = new InlineKeyboard().text(
+            //     "Я не ботяра",
+            //     "pass_check"
+            // );
+            // let message = "";
+            // message += "message: " + ctx.message.text;
+            let message = `<blockquote expandable>>> user: <a href="tg://user?id=${ctx.from.id}">${ctx.from.first_name}</a> \n>> message: <span class="tg-spoiler">${ctx.message.text}</span></blockquote> <blockquote>>> confidence: ${aiResponse.confidence}\n>> reason: ${aiResponse.reason}</blockquote>`;
 
-            let message = `spamrate ${aiResponse.confidence}%\nreason:\n\'\'\'${aiResponse.reason}\'\'\'`;
+            // await ctx.conversation.enter("spamTrigger");
 
-            await ctx.conversation.enter("greeting");
+            await bot.api.sendMessage(LOGS_CHAT_ID, message, {parse_mode: "HTML"})
 
-            bufferMsg = await ctx.reply(message, {
-                reply_parameters: { message_id: ctx.msg.message_id },
-                reply_markup: keyboard,
-            });
+            // await bot.api.sendMessage(LOGS_CHAT_ID, message, {
+            //     // reply_parameters: { message_id: ctx.msg.message_id },
+            //     parse_mode: "Markdown",
+            // });
         } else {
             await StatisticsService.incMisses();
         }
