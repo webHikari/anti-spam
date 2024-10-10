@@ -188,9 +188,11 @@ bot.on("message", async (ctx) => {
         return;
     }
 
+    const messages = await StatisticsService.getUserMessages(ctx.from.id)
     if (
         typeof ctx.message.text == "string" &&
-        ctx.message.text.length > 50
+        ctx.message.text.length > 50 &&
+        messages.length < 50
         // && ctx.chat.id == CHAT_ID
     ) {
         await StatisticsService.incChecks();
