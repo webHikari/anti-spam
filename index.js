@@ -151,6 +151,8 @@ async function checkMessageByAI(message) {
 }
 
 bot.on("message", async (ctx) => {
+    await StatisticsService.insertMessage(ctx.from.id, ctx.message.message_id)
+
     if (
         typeof ctx.message.text == "string" &&
         ctx.message.text === "Секретная фраза для получения статистики у бота"
@@ -200,17 +202,16 @@ bot.on("message", async (ctx) => {
             await StatisticsService.markUserAsSpammer(ctx.from.id);
             await StatisticsService.incSpam();
 
-            // const keyboard = new InlineKeyboard().text(
-            //     "Я не ботяра",
-            //     "pass_check"
-            // );
+            const keyboard = new InlineKeyboard()
+                .text("Забанить",`ban_${ctx.from.id}`)
+                .text("Простить",`forgive_${ctx.from.id}`);
             // let message = "";
             // message += "message: " + ctx.message.text;
-            let message = `<blockquote expandable>>> user: <a href="tg://user?id=${ctx.from.id}">${ctx.from.first_name}</a> \n>> message: <span class="tg-spoiler">${ctx.message.text}</span></blockquote> <blockquote>>> confidence: ${aiResponse.confidence}\n>> reason: ${aiResponse.reason}</blockquote>`;
+            let message = `<blockquote>>> user: <a href="tg://user?id=${ctx.from.id}">${ctx.from.first_name}</a> \n>> message: <span class="tg-spoiler">${ctx.message.text}</span></blockquote> <blockquote expandable>>> confidence: ${aiResponse.confidence}\n>> reason: ${aiResponse.reason}</blockquote>`;
 
             // await ctx.conversation.enter("spamTrigger");
 
-            await bot.api.sendMessage(LOGS_CHAT_ID, message, {parse_mode: "HTML"})
+            await bot.api.sendMessage(LOGS_CHAT_ID, message, {parse_mode: "HTML", reply_markup: keyboard})
 
             // await bot.api.sendMessage(LOGS_CHAT_ID, message, {
             //     // reply_parameters: { message_id: ctx.msg.message_id },
@@ -225,6 +226,39 @@ bot.on("message", async (ctx) => {
         );
     }
 });
+
+
+bot.on("callback_query:data", async (ctx) => {
+
+    const chat_member = await bot.api.getChatMember(CHAT_ID, ctx.from.id)
+    if (chat_member.status !== 'administrator') return await ctx.answerCallbackQuery("пошел нахуй"); 
+
+    const btnData = ctx.callbackQuery.data.split("_")
+    
+    // ahaha start
+    const spamLogMsg = ctx.callbackQuery.message.text.split(">>")
+    const username = spamLogMsg[1].slice(7, -2);
+    const text = spamLogMsg[2].slice(10, -1)
+    let message = `<blockquote expandable>>> user: <a href="tg://user?id=${btnData[1]}">${username}</a> \n>> message: <span class="tg-spoiler">${text}</span></blockquote> <blockquote expandable>>> ${spamLogMsg[3]}>>${spamLogMsg[4]}</blockquote>`;
+    // ahaha end
+
+    if (btnData[0] === 'forgive') {
+        // FUCKING NOTHING 
+        message += "Прощен"
+    } else if (btnData[0] === 'ban') {
+        await ctx.api.banChatMember(CHAT_ID, btnData[1], {until_date: 0, revoke_messages: true})
+        const messages = await StatisticsService.getUserMessages(btnData[1])
+        messages.forEach(async (message) => {
+            await ctx.api.deleteMessage(CHAT_ID, message.message_id)
+        })
+        message += "Забанен"
+    }
+    await ctx.callbackQuery.message.editText(message, {
+        reply_markup: null,
+        parse_mode: "HTML"
+    })
+    await ctx.answerCallbackQuery(); 
+  });
 
 bot.catch((err) => {
     const ctx = err.ctx;

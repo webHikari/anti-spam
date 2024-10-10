@@ -33,4 +33,19 @@ db.serialize(() => {
             }
         }
     );
+
+    db.run(
+        `CREATE TABLE IF NOT EXISTS messages (
+        id INTEGER NOT NULL,
+        message_id INTEGER NOT NULL
+    )`,
+        (err) => {
+            if (err) {
+                console.error("Error creating messages table: " + err);
+                return;
+            } else {
+                console.log("Messages table created successfully");
+            }
+        }
+    );
 });

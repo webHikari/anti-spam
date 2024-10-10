@@ -172,6 +172,34 @@ class StatisticsService {
             }
         });
     }
+
+    async insertMessage(user_id, message_id) {
+        await new Promise((resolve, reject) => {
+            db.run(
+                "INSERT INTO messages (id, message_id) VALUES (?, ?)",
+                [user_id, message_id],
+                (err) => {
+                    if (err) reject(err);
+                    else resolve();
+                }
+            );
+        });        
+    }
+
+    async getUserMessages(user_id) {
+        const messages = await new Promise((resolve, reject) => {
+            db.all(
+                "SELECT * FROM messages WHERE id = ?",
+                [user_id],
+                (err, rows) => {
+                    if (err) reject(err);
+                    else resolve(rows);
+                }
+            );
+        });
+
+        return messages
+    }
 }
 
 module.exports = new StatisticsService();
