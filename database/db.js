@@ -48,4 +48,34 @@ db.serialize(() => {
             }
         }
     );
+
+    db.run(
+        `CREATE TABLE IF NOT EXISTS falses (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            message TEXT NOT NULL
+        )`,
+        (err) => {
+            if (err) {
+                console.error("Error creating falses table: " + err);
+                return;
+            } else {
+                console.log("Falses table created successfully");
+            }
+        }
+    );
+
+    db.run(
+        `CREATE TABLE IF NOT EXISTS spamMessages (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            message TEXT NOT NULL
+        )`,
+        (err) => {
+            if (err) {
+                console.error("Error creating spamMessages table: " + err);
+                return;
+            } else {
+                console.log("spamMessages table created successfully");
+            }
+        }
+    );
 });

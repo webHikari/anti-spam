@@ -200,6 +200,60 @@ class StatisticsService {
 
         return messages
     }
+
+    async insertFalse(message) {
+        await new Promise((resolve, reject) => {
+            db.run(
+                "INSERT INTO falses (message) VALUES (?)",
+                [message],
+                (err) => {
+                    if (err) reject(err);
+                    else resolve();
+                }
+            );
+        }); 
+    }
+
+    async getFalses() {
+        const falses = await new Promise((resolve, reject) => {
+            db.all(
+                "SELECT * FROM falses",
+                (err, rows) => {
+                    if (err) reject(err);
+                    else resolve(rows);
+                }
+            );
+        });
+
+        return falses
+    }
+
+    async insertSpam(message) {
+        await new Promise((resolve, reject) => {
+            db.run(
+                "INSERT INTO spamMessages (message) VALUES (?)",
+                [message],
+                (err) => {
+                    if (err) reject(err);
+                    else resolve();
+                }
+            );
+        }); 
+    }
+
+    async getSpam() {
+        const spam = await new Promise((resolve, reject) => {
+            db.all(
+                "SELECT * FROM spamMessages",
+                (err, rows) => {
+                    if (err) reject(err);
+                    else resolve(rows);
+                }
+            );
+        });
+
+        return spam
+    }
 }
 
 module.exports = new StatisticsService();
