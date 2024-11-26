@@ -12,10 +12,6 @@ const {
     session,
 } = require("grammy");
 const { chatMembers } = require("@grammyjs/chat-members");
-const {
-    conversations,
-    createConversation,
-} = require("@grammyjs/conversations");
 const { hydrate } = require("@grammyjs/hydrate");
 
 // ai module
@@ -43,65 +39,9 @@ bot.use(
 );
 
 bot.use(chatMembers(adapter));
-bot.use(conversations());
 
-var bufferMsg = null;
+const { instruction } = require("./instruction");
 
-async function spamTrigger(conversation, ctx) {
-    console.log("trigger");
-    // const blowUpTimer = setTimeout(async () => {
-    //     if (bufferMsg !== null) {
-    //         try {
-    //             const message = `этот чел отправил спам и не нажал кнопку ТРИВОГА ТРИВОГА`
-
-    //             await bufferMsg.editText(message, {
-    //                 reply_markup: null,
-    //             });
-    //             await ctx.api.deleteMessage(
-    //                 ctx.chat.id,
-    //                 ctx.update.message.message_id
-    //             );
-    //             return;
-    //         } catch (error) {
-    //             return;
-    //             // Ignore errors, since the message may have already been deleted
-    //         }
-    //         bufferMsg = null;
-    //     }
-    //     return
-
-    // }, 10000);
-
-    // const response = await conversation.waitFrom(ctx.from.id);
-
-    // const btnContext = response.update.callback_query;
-    // if (btnContext) {
-    //     try {
-    //         await response.answerCallbackQuery();
-    //         await ctx.api.deleteMessage(
-    //             ctx.chat.id,
-    //             btnContext.message.message_id
-    //         );
-    //         return;
-    //         clearTimeout(blowUpTimer);
-    //         bufferMsg = null;
-    //     } catch (error) {
-    //         return;
-    //         // Ignore errors, since the message may have already been deleted
-    //     }
-    //     return;
-    // }
-
-    // if (btnContext.from.id === ctx.from.id && bufferMsg !== null) {
-    // }
-
-    return;
-}
-
-bot.use(createConversation(spamTrigger));
-
-const { instruction } = require("./instruction")
- 
 async function checkMessageByAI(message) {
     try {
         const prompt = instruction + "\n" + message;
@@ -131,8 +71,6 @@ async function checkMessageByAI(message) {
 }
 
 bot.on("message", async (ctx) => {
-    await StatisticsService.insertMessage(ctx.from.id, ctx.message.message_id)
-
     if (
         typeof ctx.message.text == "string" &&
         ctx.message.text === "Секретная фраза для получения статистики у бота"
@@ -168,79 +106,100 @@ bot.on("message", async (ctx) => {
         return;
     }
 
-    const messages = await StatisticsService.getUserMessages(ctx.from.id)
+    await StatisticsService.insertMessage(
+        ctx.from.id,
+        ctx.message.message_id,
+        false
+    );
+    var messages = await StatisticsService.getUserMessages(ctx.from.id);
+
     if (
         typeof ctx.message.text == "string" &&
         ctx.message.text.length > 50 &&
-        messages.length < 5
+        messages.length < 500
         // && ctx.chat.id == CHAT_ID
     ) {
         await StatisticsService.incChecks();
 
         const aiResponse = (await checkMessageByAI(ctx.message.text)) || false;
-        console.log(aiResponse);
 
-        if (aiResponse?.confidence >= 75 && aiResponse?.is_spam) {
-            await StatisticsService.markUserAsSpammer(ctx.from.id);
-            await StatisticsService.incSpam();
-
-            const keyboard = new InlineKeyboard()
-                .text("Забанить",`ban_${ctx.from.id}`)
-                .text("Простить",`forgive_${ctx.from.id}`);
-            // let message = "";
-            // message += "message: " + ctx.message.text;
-            let message = `<blockquote>>> user: <a href="tg://user?id=${ctx.from.id}">${ctx.from.first_name}</a> \n>> message: <span class="tg-spoiler">${ctx.message.text}</span></blockquote> <blockquote expandable>>> confidence: ${aiResponse.confidence}\n>> reason: ${aiResponse.reason}</blockquote>`;
-
-            // await ctx.conversation.enter("spamTrigger");
-
-            await bot.api.sendMessage(LOGS_CHAT_ID, message, {parse_mode: "HTML", reply_markup: keyboard})
-
-            // await bot.api.sendMessage(LOGS_CHAT_ID, message, {
-            //     // reply_parameters: { message_id: ctx.msg.message_id },
-            //     parse_mode: "Markdown",
-            // });
-        } else {
+        if (!(aiResponse?.confidence >= 75 && aiResponse?.is_spam)) {
+            // await bot.api.sendMessage(LOGS_CHAT_ID, message, {parse_mode: "HTML", reply_markup: keyboard})
             await StatisticsService.incMisses();
+            return;
         }
 
+        await StatisticsService.updateSpamMsg(ctx.from.id, true);
+        await StatisticsService.markUserAsSpammer(ctx.from.id);
+        await StatisticsService.incSpam();
+
+        const neededMessages = [];
+        let totalSpam = 1;
+        for (let i = 1; i <= 5; i++) {
+            console.log(messages.length - i);
+
+            neededMessages.push(messages[messages.length - i]);
+            if (messages[messages.length - i].isSpam === 1) {
+                totalSpam++;
+            }
+        }
+        console.log(neededMessages);
+        console.log(aiResponse);
+        if (totalSpam >= 3) {
+            await ctx.reply("бро спамил, ликвидирован");
+            await ctx.api.deleteMessage(
+                ctx.message.chat.id,
+                ctx.message.message_id
+            );
+            await ctx.api.banChatMember(ctx.message.chat.id, ctx.from.id, {
+                until_date: 0,
+                revoke_messages: true,
+            });
+        } else {
+            await ctx.api.deleteMessage(
+                ctx.message.chat.id,
+                ctx.message.message_id
+            );
+        }
+        console.log(totalSpam);
+
         console.log(
-            `${aiResponse?.confidency}: ${ctx.from.id}:\n${ctx.message.text}`
+            `${aiResponse?.confidence}: ${ctx.from.id}:\n${ctx.message.text}`
         );
     }
 });
 
+// bot.on("callback_query:data", async (ctx) => {
 
-bot.on("callback_query:data", async (ctx) => {
+//     const chat_member = await bot.api.getChatMember(CHAT_ID, ctx.from.id)
+//     if (chat_member.status !== 'administrator') return await ctx.answerCallbackQuery("пошел нахуй");
 
-    const chat_member = await bot.api.getChatMember(CHAT_ID, ctx.from.id)
-    if (chat_member.status !== 'administrator') return await ctx.answerCallbackQuery("пошел нахуй"); 
+//     const btnData = ctx.callbackQuery.data.split("_")
 
-    const btnData = ctx.callbackQuery.data.split("_")
-    
-    // ahaha start
-    const spamLogMsg = ctx.callbackQuery.message.text.split(">>")
-    const username = spamLogMsg[1].slice(7, -2);
-    const text = spamLogMsg[2].slice(10, -1)
-    let message = `<blockquote expandable>>> user: <a href="tg://user?id=${btnData[1]}">${username}</a> \n>> message: <span class="tg-spoiler">${text}</span></blockquote> <blockquote expandable>>> ${spamLogMsg[3]}>>${spamLogMsg[4]}</blockquote>`;
-    // ahaha end
+//     // ahaha start
+//     const spamLogMsg = ctx.callbackQuery.message.text.split(">>")
+//     const username = spamLogMsg[1].slice(7, -2);
+//     const text = spamLogMsg[2].slice(10, -1)
+//     let message = `<blockquote expandable>>> user: <a href="tg://user?id=${btnData[1]}">${username}</a> \n>> message: <span class="tg-spoiler">${text}</span></blockquote> <blockquote expandable>>> ${spamLogMsg[3]}>>${spamLogMsg[4]}</blockquote>`;
+//     // ahaha end
 
-    if (btnData[0] === 'forgive') {
-        await StatisticsService.insertFalse(text)
-        message += "Прощен"
-    } else if (btnData[0] === 'ban') {
-        await ctx.api.banChatMember(CHAT_ID, btnData[1], {until_date: 0, revoke_messages: true})
-        const messages = await StatisticsService.getUserMessages(btnData[1])
-        messages.forEach(async (message) => {
-            await ctx.api.deleteMessage(CHAT_ID, message.message_id)
-        })
-        message += "Забанен"
-    }
-    await ctx.callbackQuery.message.editText(message, {
-        reply_markup: null,
-        parse_mode: "HTML"
-    })
-    await ctx.answerCallbackQuery(); 
-  });
+//     if (btnData[0] === 'forgive') {
+//         await StatisticsService.insertFalse(text)
+//         message += "Прощен"
+//     } else if (btnData[0] === 'ban') {
+//         await ctx.api.banChatMember(CHAT_ID, btnData[1], {until_date: 0, revoke_messages: true})
+//         const messages = await StatisticsService.getUserMessages(btnData[1])
+//         messages.forEach(async (message) => {
+//             await ctx.api.deleteMessage(CHAT_ID, message.message_id)
+//         })
+//         message += "Забанен"
+//     }
+//     await ctx.callbackQuery.message.editText(message, {
+//         reply_markup: null,
+//         parse_mode: "HTML"
+//     })
+//     await ctx.answerCallbackQuery();
+//   });
 
 bot.catch((err) => {
     const ctx = err.ctx;

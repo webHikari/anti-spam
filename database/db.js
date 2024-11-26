@@ -35,9 +35,10 @@ db.serialize(() => {
     );
 
     db.run(
-        `CREATE TABLE IF NOT EXISTS messages (
+    `CREATE TABLE IF NOT EXISTS messages (
         id INTEGER NOT NULL,
-        message_id INTEGER NOT NULL
+        message_id INTEGER NOT NULL,
+        isSpam BOOLEAN DEFAULT 0
     )`,
         (err) => {
             if (err) {

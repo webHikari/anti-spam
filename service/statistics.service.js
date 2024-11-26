@@ -173,11 +173,11 @@ class StatisticsService {
         });
     }
 
-    async insertMessage(user_id, message_id) {
+    async insertMessage(user_id, message_id, isSpam) {
         await new Promise((resolve, reject) => {
             db.run(
-                "INSERT INTO messages (id, message_id) VALUES (?, ?)",
-                [user_id, message_id],
+                "INSERT INTO messages (id, message_id, isSpam) VALUES (?, ?, ?)",
+                [user_id, message_id, isSpam],
                 (err) => {
                     if (err) reject(err);
                     else resolve();
@@ -253,6 +253,20 @@ class StatisticsService {
         });
 
         return spam
+    }
+
+    async updateSpamMsg(user_id, isSpam) {
+        const messages = await this.getUserMessages(user_id)
+        await new Promise((resolve, reject) => {
+            db.run(
+                "UPDATE messages SET isSpam = ? WHERE message_id = ?",
+                [isSpam, messages[messages.length - 1].message_id],
+                (err) => {
+                    if (err) reject(err)
+                    else resolve(err)
+                }
+            )
+        })
     }
 }
 
